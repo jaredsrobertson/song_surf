@@ -1,15 +1,10 @@
+import requests
 from flask import Flask, request, Response, jsonify
 from flask_cors import CORS
-
-import requests
-
-# Importing yt_dlp for fetching YouTube video details based on search query
-import yt_dlp
-
-# Spotipy for interacting with Spotify's Web API
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from dotenv import dotenv_values
+import yt_dlp
 
 app = Flask(__name__)
 CORS(app)
@@ -30,10 +25,6 @@ sp = spotipy.Spotify(
 
 @app.route("/search", methods=["POST"])
 def search():
-    """
-    Accepts a search query, uses the Spotipy API to search for the song on Spotify,
-    then uses yt-dlp to find a corresponding YouTube video and returns the video's direct audio stream URL.
-    """
     data = request.json
     search_query = data.get("search_term")
     if not search_query:
@@ -44,12 +35,24 @@ def search():
     if not results["tracks"]["items"]:
         return jsonify({"error": "No results found on Spotify"}), 404
 
-    # Extract artist and track name from the Spotify search result
-    track_name = results["tracks"]["items"][0]["name"]
-    artist_name = results["tracks"]["items"][0]["artists"][0]["name"]
+    track = results["tracks"]["items"][0]
+    track_name = track["name"]
+    # artist_id = track["artists"][0]["id"]  # Fetch the artist's ID
+    # artist_info = sp.artist(artist_id)  # Fetch the artist's information using their ID
+    artist_name = track["artists"][0]["name"]
+    album_name = track["album"]["name"]
+    release_year = track["album"]["release_date"][
+        :4
+    ]  # Assuming release_date is in the format YYYY-MM-DD
+
+    # Select the best quality album art
+    album_art_url = (
+        track["album"]["images"][0]["url"] if track["album"]["images"] else None
+    )
+
     youtube_search_query = f"{track_name} {artist_name}"
 
-    # Use yt-dlp to search for the YouTube video and get the best audio URL
+    # Use yt_dlp to search for the YouTube video and get the best audio URL
     ydl_opts = {
         "format": "bestaudio",
         "quiet": True,
@@ -59,10 +62,18 @@ def search():
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(youtube_search_query, download=False)
-        video_url = info_dict["entries"][0]["url"]
+        video_url = info_dict["entries"][0]["url"] if info_dict["entries"] else None
 
-    # Return the direct URL to the audio stream for the frontend to use
-    return jsonify({"audio_url": video_url})
+    return jsonify(
+        {
+            "audio_url": video_url,
+            "track_name": track_name,
+            "artist_name": artist_name,
+            "album_name": album_name,
+            "release_year": release_year,
+            "album_art_url": album_art_url,
+        }
+    )
 
 
 @app.route("/stream")
@@ -85,4 +96,3 @@ def stream_audio():
 if __name__ == "__main__":
     # Run the Flask app
     app.run(debug=True)
-
